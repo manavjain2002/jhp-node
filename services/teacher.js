@@ -14,6 +14,12 @@ const teacherOutputData = {
   created_at: true,
   updated_at: true,
   organization_id: true,
+  master_role_id: true,
+  master_role: {
+    select: {
+      role_access: true,
+    },
+  },
 };
 
 async function createTeacherData(data) {
@@ -130,21 +136,144 @@ async function deleteTeacherData(filter) {
   return;
 }
 
-async function getAllTeachers(limit, offset, organization_id) {
+async function getAllTeachers(
+  searchKey,
+  sortBy,
+  organization_id,
+  sortOrder = "asc",
+  limit = 100,
+  offset = 0
+) {
   const teacher = await prisma.teacher.findMany({
-    where: {
-      organization_id,
-    },
+    where: buildWhereClause(organization_id, searchKey),
     select: teacherOutputData,
-    orderBy: {
-      teacher_birth_date: "asc",
-    },
-    take: limit,
-    skip: offset,
+    orderBy: buildOrderClause(sortBy, sortOrder),
+    take: parseInt(limit),
+    skip: parseInt(offset),
   });
 
   if (teacher) {
     return teacher;
+  }
+  return;
+}
+
+function buildWhereClause(organization_id, searchKey) {
+  let whereClause = {
+    organization_id,
+  };
+
+  if (searchKey) {
+    whereClause = {
+      ...whereClause,
+      OR: [
+        {
+          teacher_first_name: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          teacher_last_name: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          teacher_email: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          teacher_address: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          teacher_phone_number: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          teacher_username: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+      ],
+    };
+  }
+
+  return whereClause;
+}
+
+function buildOrderClause(sortBy, sortOrder) {
+  let orderClause = {
+    teacher_birth_date: "asc",
+  };
+
+  if (!sortOrder) {
+    sortOrder = "asc";
+  }
+
+  if (sortBy) {
+    orderClause = {
+      [sortBy]: sortOrder,
+    };
+  }
+
+  return orderClause;
+}
+
+async function getTeachersCount(organization_id, searchKey) {
+  const teacherCount = await prisma.teacher.count({
+    where: buildWhereClause(organization_id, searchKey),
+  });
+
+  return teacherCount;
+}
+
+async function isAdmin(id, organization_id) {
+  const student = await prisma.teacher.findUnique({
+    where: {
+      teacher_id: id,
+      organization_id,
+    },
+  });
+
+  if (student?.master_role_id == 1) {
+    return true;
+  }
+  return;
+}
+
+async function isOnlyTeacher(id, organization_id) {
+  const student = await prisma.teacher.findUnique({
+    where: {
+      teacher_id: id,
+      organization_id,
+    },
+  });
+
+  if (student.master_role_id == 2) {
+    return true;
+  }
+  return;
+}
+
+async function isOnlySupportUser(id, organization_id) {
+  const student = await prisma.teacher.findUnique({
+    where: {
+      teacher_id: id,
+      organization_id,
+    },
+  });
+
+  if (student.master_role_id == 3) {
+    return true;
   }
   return;
 }
@@ -159,4 +288,8 @@ module.exports = {
   createTeacherData,
   updateTeacherData,
   deleteTeacherData,
+  getTeachersCount,
+  isAdmin,
+  isOnlySupportUser,
+  isOnlyTeacher,
 };

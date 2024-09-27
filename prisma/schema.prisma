@@ -18,15 +18,20 @@ enum gender {
   Female @map("F")
 }
 
+enum Role {
+  Admin   @map("1")
+  Teacher @map("2")
+  Support @map("3")
+}
+
 model organization {
-  organization_id Int    @id @default(autoincrement())
+  organization_id Int      @id @default(autoincrement())
   name            String
   location        String
-  phone_number    String @unique
-  email           String @unique
+  phone_number    String   @unique
+  email           String   @unique
   created_at      DateTime @default(now()) @map("created_at")
   updated_at      DateTime @default(now()) @map("updated_at")
-  
 
   master_role master_role[]
   student     student[]
@@ -40,11 +45,12 @@ model master_role {
   master_role_id  Int      @id @default(autoincrement())
   created_at      DateTime @default(now()) @map("created_at")
   updated_at      DateTime @default(now()) @map("updated_at")
-  email           String
-  password        String
   organization_id Int
+  role_name       Role
+  role_access     String
 
   organization organization @relation(fields: [organization_id], references: [organization_id], onDelete: Cascade)
+  teacher      teacher[]
 }
 
 model student {
@@ -67,8 +73,8 @@ model student {
   created_at                      DateTime @default(now()) @map("created_at")
   updated_at                      DateTime @default(now()) @map("updated_at")
   organization_id                 Int
-  assignedTo                      Int?
-  teacher                         teacher? @relation(fields: [assignedTo], references: [teacher_id], onDelete: SetNull)
+  assigned_to                     Int?
+  teacher                         teacher? @relation(fields: [assigned_to], references: [teacher_id], onDelete: SetNull)
 
   organization         organization           @relation(fields: [organization_id], references: [organization_id], onDelete: Cascade)
   course               course[]
@@ -86,26 +92,28 @@ model student {
 }
 
 model teacher {
-  teacher_id                              Int      @id @default(autoincrement())
+  teacher_id                              Int         @id @default(autoincrement())
   teacher_first_name                      String
   teacher_last_name                       String
-  teacher_phone_number                    String   @unique
-  teacher_email                           String   @unique
+  teacher_phone_number                    String      @unique
+  teacher_email                           String      @unique
   teacher_address                         String
-  teacher_password                        String   @unique
+  teacher_password                        String      @unique
   teacher_birth_date                      DateTime
   teacher_gender                          gender
-  teacher_username                        String   @unique
-  teacher_reset_password_token            String   @default("")
-  teacher_reset_password_token_expiration DateTime @default(now())
-  is_support_user                         Boolean  @default(false)
-  created_at                              DateTime @default(now()) @map("created_at")
-  updated_at                              DateTime @default(now()) @map("updated_at")
+  teacher_username                        String      @unique
+  teacher_reset_password_token            String      @default("")
+  teacher_reset_password_token_expiration DateTime    @default(now())
+  created_at                              DateTime    @default(now()) @map("created_at")
+  updated_at                              DateTime    @default(now()) @map("updated_at")
+  master_role_id                          Int
+  master_role                             master_role @relation(fields: [master_role_id], references: [master_role_id], onDelete: Cascade)
 
   organization_id Int
   organization    organization @relation(fields: [organization_id], references: [organization_id], onDelete: Cascade)
   attendance      attendance[]
   student         student[]
+  course          course[]
 
   @@index([organization_id])
   @@index([teacher_first_name, teacher_last_name])
@@ -132,12 +140,14 @@ model course {
   registration_closing_date  DateTime
   result_date                DateTime?
   created_by                 Int
-  student                    student      @relation(fields: [created_by], references: [student_id], onDelete: Cascade)
+  teacher                    teacher      @relation(fields: [created_by], references: [teacher_id], onDelete: Cascade)
   organization_id            Int
   organization               organization @relation(fields: [organization_id], references: [organization_id], onDelete: Cascade)
   category                   category
 
   student_apply_course student_apply_course[]
+  student              student?               @relation(fields: [studentStudent_id], references: [student_id])
+  studentStudent_id    Int?
 
   @@index([category])
   @@index([course_name, course_date])
@@ -193,8 +203,8 @@ model attendance {
   teacher_id    Int
   teacher       teacher  @relation(fields: [teacher_id], references: [teacher_id], onDelete: Cascade)
 
+  @@unique([date, student_id])
   @@index([date])
   @@index([date, student_id])
-  @@unique([date, student_id])
   @@index([date, teacher_id, student_id])
 }

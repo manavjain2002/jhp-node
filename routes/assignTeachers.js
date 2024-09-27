@@ -7,6 +7,8 @@ const {
   findStudentsAssignedToTeacherId,
   findStudentAssignedTeacher,
   getAllAssignees,
+  getAllAssigneesCount,
+  findStudentsAssignedToTeacherIdCount,
 } = require("../services/user");
 const { findTeacherById } = require("../services/teacher");
 const router = express.Router();
@@ -15,12 +17,29 @@ const router = express.Router();
 module.exports = function () {
   // Get all teacher's assignees
   router.get(
-    "/teachers/assignes/:teacher_id",
+    "/teachers/assignees/:teacher_id",
     userMiddleware,
     async (req, res) => {
       const teacher_id = parseInt(req.params.teacher_id);
+      const {student, teacher} = req.body;
+
+      const organization_id =
+      student && student?.organization_id
+        ? student?.organization_id
+        : teacher?.organization_id;
+
+      const { searchKey, sortBy, sortOrder, limit, offset } = req.query;
       try {
-        const students = await findStudentsAssignedToTeacherId(teacher_id);
+        const totalCount = await findStudentsAssignedToTeacherIdCount(organization_id, searchKey, teacher_id);
+        const students = await findStudentsAssignedToTeacherId(
+          organization_id,
+          searchKey,
+          sortBy,
+          teacher_id,
+          sortOrder,
+          limit,
+          offset
+        );
         if (!students) {
           res.status(422).json({
             message: `No student found`,
@@ -29,7 +48,10 @@ module.exports = function () {
         }
         res.status(200).json({
           message: `Students found`,
-          data: students,
+          data: {
+            users: students,
+            totalCount: parseInt(totalCount)
+          },
         });
       } catch (error) {
         res.status(500).json({
@@ -67,9 +89,23 @@ module.exports = function () {
   );
 
   // Get Result By Users
-  router.get("/assignees/", userMiddleware, async (req, res) => {
+  router.get("/assignees", userMiddleware, async (req, res) => {
     try {
-      const assignees = await getAllAssignees();
+      const { student, teacher } = req.body;
+      const { limit, offset, searchKey, sortBy, sortOrder } = req.query;
+      const organization_id =
+        student && student?.organization_id
+          ? student?.organization_id
+          : teacher?.organization_id;
+      const totalAssigneeCount = await getAllAssigneesCount(organization_id);
+      const assignees = await getAllAssignees(
+        searchKey,
+        sortBy,
+        organization_id,
+        sortOrder,
+        limit,
+        offset
+      );
       if (!assignees) {
         res.status(422).json({
           message: `Invalid data`,
@@ -78,7 +114,7 @@ module.exports = function () {
       }
       res.status(200).json({
         message: `Result found`,
-        data: assignees,
+        data: { assignees, offset, totalCount: totalAssigneeCount },
       });
     } catch (error) {
       res.status(500).json({
@@ -90,12 +126,12 @@ module.exports = function () {
   // Create and Update Assignee
   router.post("/assign", userMiddleware, async (req, res) => {
     const { teacher } = req.body;
-    if (!teacher) {
+    /* if (!teacher) {
       res.status(403).json({
         message: `Only teacher or support user`,
       });
       return;
-    }
+    } */
     try {
       const { student_id, teacher_id } = req.body;
       if (!student_id || !teacher_id) {
@@ -121,8 +157,8 @@ module.exports = function () {
         return;
       }
 
-      if (student.assignedTo) {
-        const teacherById = await findTeacherById(student.assignedTo);
+      if (student.assigned_to) {
+        const teacherById = await findTeacherById(student.assigned_to);
         if (!teacherById) {
           res.status(422).json({
             message: `Invalid teacher`,
@@ -139,12 +175,12 @@ module.exports = function () {
       }
       const isAssigned = await updateStudentData(
         { student_id },
-        { assignedTo: teacher_id }
+        { assigned_to: teacher_id }
       );
 
       if (isAssigned) {
         res.status(200).json({
-          message: `Student assigned successfully`,
+          message: `Teacher assigned successfully`,
           data: isAssigned,
         });
       } else {
@@ -187,7 +223,7 @@ module.exports = function () {
 
       const deletedAssignee = await updateStudentData(
         { student_id },
-        { assignedTo: null }
+        { assigned_to: null }
       );
       if (!deletedAssignee) {
         res.status(500).json({

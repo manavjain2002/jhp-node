@@ -17,7 +17,7 @@ async function sendEmail(to, subject, text){
       from: process.env.MAIL_ID,
       to,
       subject,
-      text,
+      html: text,
     };
 
     console.log("Sending mail");

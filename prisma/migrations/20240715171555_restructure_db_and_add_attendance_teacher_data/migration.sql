@@ -126,7 +126,6 @@ CREATE TABLE "teacher" (
     "teacher_gender" "gender" NOT NULL,
     "teacher_reset_password_token" TEXT NOT NULL DEFAULT '',
     "teacher_reset_password_token_expiration" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "is_support_user" BOOLEAN NOT NULL DEFAULT false,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "organization_id" INTEGER NOT NULL,

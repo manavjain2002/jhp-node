@@ -15,8 +15,9 @@ const studentOutputData = {
   created_at: true,
   updated_at: true,
   organization_id: true,
-  assignedTo: true,
-  teacher: true
+  assigned_to: true,
+  teacher: true,
+  register_no: true,
 };
 
 async function createStudentData(data) {
@@ -62,7 +63,7 @@ async function findStudentById(id) {
 async function findStudentByRegisterNumber(register_no) {
   const student = await prisma.student.findUnique({
     where: {
-      register_no
+      register_no,
     },
     select: studentOutputData,
   });
@@ -147,17 +148,28 @@ async function deleteStudentData(filter) {
   return;
 }
 
-async function getAllStudents(limit, offset, organization_id) {
+async function getTotalStudentsCount(organization_id, searchKey) {
+  const studentCount = await prisma.student.count({
+    where: buildWhereClause(organization_id, searchKey),
+  });
+
+  return studentCount;
+}
+
+async function getAllStudents(
+  searchKey,
+  sortBy,
+  organization_id,
+  sortOrder = "asc",
+  limit = 100,
+  offset = 0
+) {
   const student = await prisma.student.findMany({
-    where: {
-      organization_id,
-    },
+    where: buildWhereClause(organization_id, searchKey),
     select: studentOutputData,
-    orderBy: {
-      birth_date: "asc",
-    },
-    take: limit,
-    skip: offset,
+    orderBy: buildOrderClause(sortBy, sortOrder),
+    take: parseInt(limit),
+    skip: parseInt(offset),
   });
 
   if (student) {
@@ -166,27 +178,134 @@ async function getAllStudents(limit, offset, organization_id) {
   return;
 }
 
-async function isAdmin(student_id, organization_id) {
-  const student = await prisma.master_role.findUnique({
-    where: {
-      master_role_id: student_id,
-      organization_id
-    },
+function buildWhereClause(
+  organization_id,
+  searchKey,
+  assigneeCheck = false,
+  teacher_id = undefined
+) {
+  let whereClause;
+
+  if (assigneeCheck) {
+    whereClause = {
+      assigned_to: {
+        not: null,
+      },
+    };
+  } else if (teacher_id) {
+    whereClause = {
+      assigned_to: parseInt(teacher_id),
+    };
+  }
+
+  if (searchKey) {
+    whereClause = {
+      ...whereClause,
+      organization_id,
+      OR: [
+        {
+          first_name: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          last_name: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          email: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          address: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          phone_number: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          father_name: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          register_no: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+        {
+          username: {
+            contains: searchKey,
+            mode: "insensitive",
+          },
+        },
+      ],
+    };
+  }
+
+  return whereClause;
+}
+
+function buildOrderClause(sortBy, sortOrder) {
+  let orderClause = {
+    birth_date: "asc",
+  };
+
+  if (!sortOrder) {
+    sortOrder = "asc";
+  }
+
+  if (sortBy) {
+    orderClause = {
+      [sortBy]: sortOrder,
+    };
+  }
+
+  return orderClause;
+}
+
+async function findStudentsAssignedToTeacherIdCount(
+  organization_id,
+  searchKey,
+  teacher_id,
+) {
+  const students = await prisma.student.count({
+    where: buildWhereClause(organization_id, searchKey, false, teacher_id),
   });
 
-  if (student) {
-    return true;
+  if (students) {
+    return students;
   }
   return;
 }
 
-
-async function findStudentsAssignedToTeacherId(teacher_id) {
+async function findStudentsAssignedToTeacherId(
+  organization_id,
+  searchKey,
+  sortBy,
+  teacher_id,
+  sortOrder = "asc",
+  limit = 100,
+  offset = 0
+) {
   const students = await prisma.student.findMany({
-    where: {
-        assignedTo: teacher_id
-    },
-    select: studentOutputData
+    where: buildWhereClause(organization_id, searchKey, false, teacher_id),
+    select: studentOutputData,
+    orderBy: buildOrderClause(sortBy, sortOrder),
+    take: parseInt(limit),
+    skip: parseInt(offset),
   });
 
   if (students) {
@@ -201,7 +320,7 @@ async function findStudentAssignedTeacher(student_id) {
       student_id,
     },
     select: {
-        teacher: true
+      teacher: true,
     },
   });
 
@@ -211,26 +330,48 @@ async function findStudentAssignedTeacher(student_id) {
   return;
 }
 
-async function getAllAssignees() {
+async function getAllAssignees(
+  searchKey,
+  sortBy,
+  organization_id,
+  sortOrder = "asc",
+  limit = 100,
+  offset = 0
+) {
   const students = await prisma.student.findMany({
-    where: {
-      assignedTo: {
-        not: null
-      }
-    },
+    where: buildWhereClause(organization_id, searchKey, true),
     select: {
       student_id: true,
-      assignedTo: true
+      first_name: true,
+      last_name: true,
+      father_name: true,
+      email: true,
+      phone_number: true,
+      address: true,
+      assigned_to: true,
     },
-    orderBy: {
-      birth_date: "asc",
-    },
+    orderBy: buildOrderClause(sortBy, sortOrder),
+    take: parseInt(limit),
+    skip: parseInt(offset),
   });
 
   if (students) {
     return students;
   }
   return;
+}
+
+async function getAllAssigneesCount(organization_id) {
+  const studentsCount = await prisma.student.count({
+    where: {
+      organization_id,
+      assigned_to: {
+        not: null,
+      },
+    },
+  });
+
+  return studentsCount;
 }
 
 module.exports = {
@@ -244,8 +385,10 @@ module.exports = {
   createStudentData,
   updateStudentData,
   deleteStudentData,
-  isAdmin,
   findStudentsAssignedToTeacherId,
+  findStudentsAssignedToTeacherIdCount,
   findStudentAssignedTeacher,
-  getAllAssignees
+  getAllAssignees,
+  getTotalStudentsCount,
+  getAllAssigneesCount,
 };

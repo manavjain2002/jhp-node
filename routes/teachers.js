@@ -12,6 +12,7 @@ const {
   deleteTeacherData,
   getAllTeachers,
   findTeacherById,
+  getTeachersCount,
 } = require("../services/teacher");
 
 const { sendEmail } = require("../helpers/sendEmail");
@@ -53,27 +54,6 @@ module.exports = function () {
       res.status(500).send(`Internal Server Error: ${error}`);
     }
   });
-
-  // Get teachers.
-  router.get("/teachers", userMiddleware, async (req, res) => {
-    try {
-      const { limit, offset, student, teacher } = req.body;
-      const users = await getAllTeachers(
-        limit,
-        offset,
-        student?.organization_id || teacher?.organization_id
-      );
-      if (users && users.length > 0) {
-        res.status(200).json({ message: "Teachers found", data: users });
-      } else {
-        res.status(422).json({ message: "Teachers not found", data: null });
-      }
-    } catch (error) {
-      console.error("Error while getting teachers data:", error);
-      res.status(500).send(`Internal Server Error: ${error}`);
-    }
-  });
-
   // Get teacher by username.
   router.get(
     "/teachers/username/:username",
@@ -85,7 +65,7 @@ module.exports = function () {
         if (user) {
           res.status(200).json({ message: "Teacher found", data: user });
         } else {
-          res.status(422).json({ message: "Teacher not found", data: null });
+          res.status(204).json({ message: "Teacher not found", data: null });
         }
       } catch (error) {
         console.error("Error while getting teacher with unique id:", error);
@@ -93,6 +73,47 @@ module.exports = function () {
       }
     }
   );
+
+  // Get teachers.
+  router.get("/teachers", userMiddleware, async (req, res) => {
+    try {
+      const { student, teacher } = req.body;
+
+      const { limit, offset, searchKey, sortBy, sortOrder } = req.query;
+
+      const organization_id =
+        student && student?.organization_id
+          ? student?.organization_id
+          : teacher?.organization_id;
+
+      const totalTeacherCount = await getTeachersCount(organization_id, searchKey);
+
+      const teachers = await getAllTeachers(
+        searchKey,
+        sortBy,
+        organization_id,
+        sortOrder,
+        limit,
+        offset
+      );
+
+      if (teachers && teachers.length > 0) {
+        res.status(200).json({
+          message: "Teachers found",
+          data: {
+            teachers,
+            offset,
+            totalCount: totalTeacherCount,
+          },
+        });
+      } else {
+        res.status(204).json({ message: "Teachers not found", data: null });
+      }
+    } catch (error) {
+      console.error("Error while getting teachers data:", error);
+      res.status(500).send(`Internal Server Error: ${error}`);
+    }
+  });
 
   // Get teacher by id.
   router.get("/teachers/:id", userMiddleware, async (req, res) => {
@@ -102,7 +123,7 @@ module.exports = function () {
       if (teacher) {
         res.status(200).json({ message: "Teacher found", data: teacher });
       } else {
-        res.status(422).json({ message: "Teacher not found", data: null });
+        res.status(204).json({ message: "Teacher not found", data: null });
       }
     } catch (error) {
       console.error("Error while getting teacher with id:", error);
@@ -124,8 +145,8 @@ module.exports = function () {
         teacher_birth_date,
         teacher_gender,
         teacher_username,
-        is_support_user,
         organization_id,
+        master_role_id,
       } = req.body;
 
       if (
@@ -138,7 +159,8 @@ module.exports = function () {
         !teacher_gender ||
         !teacher_username ||
         !organization_id ||
-        !teacher_address
+        !teacher_address ||
+        !master_role_id
       ) {
         res
           .status(422)
@@ -154,7 +176,7 @@ module.exports = function () {
         return;
       }
 
-      if (teacher_password.length <= 4 || teacher_password.length >= 12) {
+      if (teacher_password.length < 4 || teacher_password.length >= 12) {
         res
           .status(422)
           .send("Password length should be between 4 to 12 characters.");
@@ -165,13 +187,12 @@ module.exports = function () {
         !validateEmail(teacher_email) ||
         !validatePhoneNumber(teacher_phone_number)
       ) {
-        res.status(422).send("Invalid data");
+        res.status(422).json({ message: "Invalid email or phone number." });
         return;
       }
 
       // hash password
       let encPassword = bcrypt.createHash(teacher_password);
-
       const teacher = await createTeacherData({
         teacher_first_name,
         teacher_last_name,
@@ -183,8 +204,9 @@ module.exports = function () {
         teacher_gender,
         teacher_username,
         organization_id,
-        is_support_user: is_support_user || false,
+        master_role_id,
       });
+
       if (teacher) {
         //   // Sending mail
         // const subject = `Welcome to JHP Family`;
@@ -196,7 +218,7 @@ module.exports = function () {
         res.status(200).json({ message: "Signup successful", data: teacher });
         // }
       } else {
-        res.status(500).send("Internal Server Error");
+        res.status(500).json({ message: "There is some error with server."});
       }
     } catch (error) {
       console.error("Error during signup:", error);
@@ -225,7 +247,15 @@ module.exports = function () {
           if (token) {
             res.status(200).json({
               message: `Login successful for teacher`,
-              data: token,
+              data: {
+                teacher_id: teacher.teacher_id,
+                teacher_username: teacher.teacher_username,
+                teacher_first_name: teacher.teacher_first_name,
+                teacher_last_name: teacher.teacher_last_name,
+                token: token,
+                master_role_id: teacher.master_role_id,
+                role_access: teacher.master_role?.role_access
+              },
             });
           } else {
             res.status(500).json({
@@ -250,10 +280,44 @@ module.exports = function () {
 
   // Update profile route
   router.post("/teachers/update_profile", userMiddleware, async (req, res) => {
-    const { teacher, data } = req.body;
+    const { teacher, data, admin } = req.body;
     try {
       const updatedTeacher = await updateTeacherData(
-        { teacher_username: teacher.teacher_username },
+        { teacher_username: data.teacher_username },
+        data
+      );
+
+      if (updatedTeacher) {
+        const data = (({
+          teacher_password,
+          teacher_id,
+          teacher_username,
+          ...o
+        }) => o)(updatedTeacher);
+        res.status(200).json({
+          message: `Teacher profile updated successfully.`,
+          data: {
+            user: data,
+          },
+        });
+      } else {
+        res.status(422).json({
+          message: `Invalid data`,
+        });
+      }
+    } catch (error) {
+      res.status(500).json({
+        message: `Internal Server Error: ${error}`,
+      });
+    }
+  });
+
+  // Update profile route
+  router.post("/teachers/update_my_profile", userMiddleware, async (req, res) => {
+    const { teacher, data, admin } = req.body;
+    try {
+      const updatedTeacher = await updateTeacherData(
+        { teacher_id: teacher.teacher_id },
         data
       );
 
@@ -455,8 +519,8 @@ module.exports = function () {
   router.delete("/teachers/:id", userMiddleware, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { teacher } = req.body;
-      if (teacher && teacher.teacher_id == id) {
+      const { teacher, admin } = req.body;
+      if (teacher && (teacher.teacher_id == id || admin)) {
         const deletedTeacher = await deleteTeacherData({ teacher_id: id });
         if (deletedTeacher) {
           res.status(200).json({
@@ -467,15 +531,13 @@ module.exports = function () {
           res.status(500).json({ message: "Unable to delete teacher" });
         }
       } else {
-        res.status(422).json({ message: "Teacher not found" });
+        res.status(204).json({ message: "Teacher not found" });
       }
     } catch (error) {
       console.error("Error while getting teacher with unique id:", error);
       res.status(500).send(`Internal Server Error: ${error}`);
     }
   });
-
-
 
   return router;
 };

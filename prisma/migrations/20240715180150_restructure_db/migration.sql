@@ -19,7 +19,7 @@ ALTER TABLE "organization" ADD COLUMN     "created_at" TIMESTAMP(3) NOT NULL DEF
 ADD COLUMN     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- AlterTable
-ALTER TABLE "student" ADD COLUMN     "assignedTo" INTEGER,
+ALTER TABLE "student" ADD COLUMN     "assigned_to" INTEGER,
 ADD COLUMN     "register_no" TEXT NOT NULL;
 
 -- AlterTable
@@ -35,4 +35,4 @@ CREATE UNIQUE INDEX "student_register_no_key" ON "student"("register_no");
 CREATE UNIQUE INDEX "teacher_teacher_username_key" ON "teacher"("teacher_username");
 
 -- AddForeignKey
-ALTER TABLE "student" ADD CONSTRAINT "student_assignedTo_fkey" FOREIGN KEY ("assignedTo") REFERENCES "teacher"("teacher_id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "student" ADD CONSTRAINT "student_assignedTo_fkey" FOREIGN KEY ("assigned_to") REFERENCES "teacher"("teacher_id") ON DELETE SET NULL ON UPDATE CASCADE;

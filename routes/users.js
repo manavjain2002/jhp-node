@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const bcrypt = require("../helpers/bcrypt");
 const crypto = require("crypto");
+const moment = require("moment");
 
 const {
   findStudentByUsername,
@@ -13,12 +14,12 @@ const {
   getAllStudents,
   findStudentById,
   findStudentByRegisterNumber,
+  getTotalStudentsCount,
 } = require("../services/user");
 
 const { sendEmail } = require("../helpers/sendEmail");
 const { signJwt } = require("../helpers/jwt");
 const { userMiddleware } = require("../middlewares/middleware");
-const { generateFourDigitRandomNumber } = require("../helpers/randomNumber");
 const { getOrganization } = require("../services/organization");
 require("dotenv").config();
 
@@ -60,16 +61,35 @@ module.exports = function () {
   // Get users.
   router.get("/students", userMiddleware, async (req, res) => {
     try {
-      const { limit, offset, student } = req.body;
+      const { student, teacher } = req.body;
+      const { limit, offset, searchKey, sortBy, sortOrder } = req.query;
+
+      const organization_id =
+        student && student?.organization_id
+          ? student?.organization_id
+          : teacher?.organization_id;
+      const totalUserCount = await getTotalStudentsCount(organization_id, searchKey);
+
       const users = await getAllStudents(
+        searchKey,
+        sortBy,
+        organization_id,
+        sortOrder,
         limit,
-        offset,
-        student.organization_id
+        offset
       );
+
       if (users && users.length > 0) {
-        res.status(200).json({ message: "Users found", data: users });
+        res.status(200).json({
+          message: "Users found",
+          data: {
+            users,
+            offset,
+            totalCount: totalUserCount,
+          },
+        });
       } else {
-        res.status(422).json({ message: "User not found", data: null });
+        res.status(204).json({ message: "User not found", data: null });
       }
     } catch (error) {
       console.error("Error while getting users:", error);
@@ -78,30 +98,34 @@ module.exports = function () {
   });
 
   // Get student by username.
-  router.get("/students/username/:username", userMiddleware, async (req, res) => {
-    try {
-      const { username } = req.params;
-      const user = await findStudentByUsername(username);
-      if (user) {
-        res.status(200).json({ message: "User found", data: user });
-      } else {
-        res.status(422).json({ message: "User not found", data: null });
+  router.get(
+    "/students/username/:username",
+    userMiddleware,
+    async (req, res) => {
+      try {
+        const { username } = req.params;
+        const user = await findStudentByUsername(username);
+        if (user) {
+          res.status(200).json({ message: "User found", data: user });
+        } else {
+          res.status(422).json({ message: "User not found", data: null });
+        }
+      } catch (error) {
+        console.error("Error while getting user with unique id:", error);
+        res.status(500).send(`Internal Server Error: ${error}`);
       }
-    } catch (error) {
-      console.error("Error while getting user with unique id:", error);
-      res.status(500).send(`Internal Server Error: ${error}`);
     }
-  });
+  );
 
   // Get student by id.
   router.get("/students/:id", userMiddleware, async (req, res) => {
     try {
       const { id } = req.params;
-      const user = await findStudentById(id);
+      const user = await findStudentById(parseInt(id));
       if (user) {
         res.status(200).json({ message: "User found", data: user });
       } else {
-        res.status(422).json({ message: "User not found", data: null });
+        res.status(204).json({ message: "User not found", data: null });
       }
     } catch (error) {
       console.error("Error while getting user with unique id:", error);
@@ -154,7 +178,7 @@ module.exports = function () {
         return;
       }
 
-      if (password.length <= 4 || password.length >= 12) {
+      if (password.length < 4 || password.length >= 12) {
         res
           .status(422)
           .send("Password length should be between 4 to 12 characters.");
@@ -170,21 +194,27 @@ module.exports = function () {
       let encPassword = bcrypt.createHash(password);
 
       const organization = await getOrganization(organization_id);
+      const date = moment(birth_date).format("DD");
+      const month = moment(birth_date).format("MM");
 
       let register_no =
-      organization.name.slice(0, 3) +
-      first_name[0] +
-      last_name[0] +
-      generateFourDigitRandomNumber().toString();
-      
+        organization.name.slice(0, 3) +
+        first_name[0] +
+        father_name[0] +
+        last_name[0] +
+        date +
+        month;
+
       while (true) {
         const isStudentExists = await findStudentByRegisterNumber(register_no);
         if (isStudentExists) {
           register_no =
-          organization.name.slice(0, 3) +
-          first_name[0] +
-          last_name[0] +
-          generateFourDigitRandomNumber().toString();
+            organization.name.slice(0, 3) +
+            first_name[0] +
+            father_name[0] +
+            last_name[0] +
+            date +
+            month;
         } else {
           break;
         }
@@ -202,42 +232,65 @@ module.exports = function () {
         gender,
         username,
         organization_id,
-        register_no,
+        register_no: register_no.toLocaleUpperCase(),
       });
+
       if (student) {
         const token = signJwt(student);
-          if (token) {
-            res.status(200).json({
-              message: `Signup successful for student`,
-              data: {
-                student_id: student.student_id,
-                username: student.username,
-                first_name: student.first_name,
-                last_name: student.last_name,
-                token: token,
-              },
-            });
-          } else {
-            res.status(500).json({
-              message: `Internal Server Error while creating jwt token`,
-            });
-            return;
-          }
-        //   // Sending mail
-        // const subject = `Welcome to JHP Family`;
-        // const text = `Your registration is successful\n Your Unique Id : ${unique_id}.\n Your password is : ${password} \n Use this unique id to login `;
-        // const isMailSent = await sendEmail(email, subject, text);
-        // if (!isMailSent) {
-        //   console.error(`Unable to send mail`);
-        // } else {
-        res.status(200).json({ message: "Signup successful", data: student });
-        // }
+        if (token) {
+          res.status(200).json({
+            message: `Signup successful for student`,
+            data: {
+              student_id: student.student_id,
+              username: student.username,
+              first_name: student.first_name,
+              last_name: student.last_name,
+              register_no: student.register_no,
+              assigned_to: student.assigned_to,
+              token: token,
+            },
+          });
+        } else {
+          res.status(500).json({
+            message: `Internal Server Error while creating jwt token`,
+          });
+          return;
+        }
+        // Sending mail
+        const subject = `Welcome to JHP Family`;
+        const text = `
+          <html>
+            <body>
+              <pre>
+Hello ${student.first_name}
+                
+Thank you for registering with us. Below are your login details. Please keep them secure and do not share them with anyone.
+
+<b>Username:</b> ${student.username} 
+<b>Password:</b> ${password} 
+                
+You can log in using the below link: 
+                
+<a href="https://software.jhpparivar.in">https://software.jhpparivar.in</a>
+                </pre>
+            </body>
+          </html>`;
+        const isMailSent = await sendEmail(email, subject, text);
+        if (!isMailSent) {
+          console.error(`Unable to send mail`);
+        }
       } else {
-        res.status(500).send("Internal Server Error");
+        return res
+          .status(500)
+          .json({
+            message: "An error occurred during signup. Please try again later",
+          });
       }
     } catch (error) {
       console.error("Error during signup:", error);
-      res.status(500).send("Internal Server Error");
+      return res
+        .status(500)
+        .json({ message: "There is some error. Please try again." });
     }
   });
 
@@ -267,6 +320,8 @@ module.exports = function () {
                 username: student.username,
                 first_name: student.first_name,
                 last_name: student.last_name,
+                register_no: student.register_no,
+                assigned_to: student.assigned_to,
                 token: token,
               },
             });
@@ -294,9 +349,7 @@ module.exports = function () {
   // Update profile route
   router.post("/students/update_profile", userMiddleware, async (req, res) => {
     const { student, data } = req.body;
-    const updateData = (({ password, student_id, username, ...o }) => o)(
-      data
-    );
+    const updateData = (({ password, student_id, username, ...o }) => o)(data);
     try {
       const updatedStudent = await updateStudentData(
         { username: student.username },
@@ -315,6 +368,7 @@ module.exports = function () {
               phone_number: updatedStudent.phone_number,
               address: updatedStudent.address,
               birth_date: updatedStudent.birth_date,
+              register_no: updatedStudent.register_no,
             },
           },
         });
@@ -633,7 +687,7 @@ module.exports = function () {
           res.status(500).json({ message: "Unable to delete student" });
         }
       } else {
-        res.status(422).json({ message: "Student not found" });
+        res.status(204).json({ message: "Student not found" });
       }
     } catch (error) {
       console.error("Error while getting student with unique id:", error);
